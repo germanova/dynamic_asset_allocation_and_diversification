@@ -1,0 +1,12 @@
+# Dynamic Asset Allocation and Diversification Techniques
+
+
+Python files are divided into:
+
+- `data_and_descriptives.py` for descriptives, download information, and visualization of the selected assets.
+- `dynamic_asset_allocation.py` for Dynamic Asset Allocation using CPPI, MDD, RDD, and EDD.
+- `diversification.py` for diversification of the portfolio using rebalancing strategies and variants of EW rebalancing with stop loss and take profit.
+
+Jupyter Notebook files contain examples of how to use it.
+
+The file `etf_ib_data.xlsx` contains descriptives about ETFs.
