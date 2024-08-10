@@ -1,12 +1,40 @@
 # Dynamic Asset Allocation and Diversification Techniques
 
+This project explores various methods for managing and optimizing asset portfolios using Python. The code and examples provided implement dynamic asset allocation and portfolio diversification strategies.
 
-Python files are divided into:
+## Structure
 
-- `data_and_descriptives.py` for descriptives, download information, and visualization of the selected assets.
-- `dynamic_asset_allocation.py` for Dynamic Asset Allocation using CPPI, MDD, RDD, and EDD.
-- `diversification.py` for diversification of the portfolio using rebalancing strategies and variants of EW rebalancing with stop loss and take profit.
+### Python Files
 
-Jupyter Notebook files contain examples of how to use it.
+- **`data_and_descriptives.py`**  
+  This script is responsible for:
+  - Generating descriptive statistics for the selected assets.
+  - Downloading and preprocessing asset data.
+  - Visualizing asset performance and characteristics.
 
-The file `etf_ib_data.xlsx` contains descriptives about ETFs.
+- **`dynamic_asset_allocation.py`**  
+  Contains implementations for dynamic asset allocation strategies, including:
+  - **CPPI (Constant Proportion Portfolio Insurance)**
+  - **MDD (Maximum Drawdown)**
+  - **RDD (Relative Drawdown)**
+  - **EDD (Expected Drawdown)**
+
+- **`diversification.py`**  
+  Focuses on portfolio diversification through:
+  - Various rebalancing strategies.
+  - Variants of Equal-Weighted (EW) rebalancing.
+  - Incorporating stop-loss and take-profit mechanisms to manage risk and returns.
+
+### Jupyter Notebooks
+
+- **`compare_data.ipynb`**  
+  Shows a basic example of the **`data_and_descriptives.py`** file functions in order to compare different assets.
+- **`daa_diversification.ipynb`** 
+  Shows one of the backtesting strategies based on DAA and diversification strategies.
+- **`create_report.ipynb`** 
+  Creates a report that outputs returns perfomance and risk metrics, along characteristics of the selected ETFs based on the **`etf_ib_data.xlsx`**  data.
+### Data Files
+
+- **`etf_ib_data.xlsx`**  
+  Contains descriptive data about ETFs used in the analysis.
+
