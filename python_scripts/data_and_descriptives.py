@@ -131,7 +131,8 @@ def data_yahoo(tickers: list, freq: str, start: str, end: str, data: list = ['Ad
     '''
 
     try:
-        df = yfin.download(tickers, start=start, end=end, interval=freq)
+        df = yfin.download(tickers, start=start, end=end,
+                           interval=freq, auto_adjust=False)
         if len(data) == 1:
             data = data[0]
         df = df[data]
