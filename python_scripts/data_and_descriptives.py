@@ -552,9 +552,9 @@ def kappa_ratio(returns: pd.DataFrame, target: float = 0.05, p: int = 252, order
     return kappa
 
 
-def sharpe_ratio(returns: pd.DataFrame, target: float = 0.05, p: int = 252, order: int = 3, **kwargs) -> pd.Series:
+def sharpe_ratio_on_avg(returns: pd.DataFrame, target: float = 0.05, p: int = 252, **kwargs) -> pd.Series:
     '''
-    Return the Kappa Ratio for a set of returns
+    Return the Sharpe Ratio for a set of returns without annualizing the excess return but using the mean return
 
     Parameters:
     target = annualized target of return
@@ -979,7 +979,7 @@ ALL_ABS_METRICS = [(total_return, {}), (annualized_returns, {}), (annualized_vol
     (omega_ratio_put_option, {'target': TARGET}),
     (sortino_ratio, {'target': TARGET}),
     (kappa_ratio, {'target': TARGET}),
-    (sharpe_ratio, {'target': TARGET})
+    (sharpe_ratio_on_avg, {'target': TARGET})
 ]
 
 BENCHMARK = 'SPY'
