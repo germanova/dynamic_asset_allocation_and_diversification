@@ -1,0 +1,14 @@
+{
+    "m": 3.0,
+    "start_value": 1.0,
+    "kappa": 0.8,
+    "window": 0,
+    "rebal": 1,
+    "w_bounds": [
+        0,
+        1
+    ],
+    "returns": true,
+    "sat_core": false,
+    "strategy": "rdd"
+}
