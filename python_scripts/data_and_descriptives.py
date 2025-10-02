@@ -603,31 +603,42 @@ def upside_potential_ratio(returns: pd.DataFrame, target: float = 0.05, p: int =
     return upr
 
 
-def value_at_risk(returns: pd.DataFrame, percentage: float = 0.05, estimation_type: str = 'sample', **kwargs) -> pd.Series:
+def hist_value_at_risk(returns: pd.DataFrame, percentage: float = 0.05, **kwargs) -> pd.Series:
     """
-    Return the Value at Risk for a set of returns
+    Return the Historic Value at Risk for a set of returns.
+    Get the quantile value at the given percentage
 
     Parameters:
     percentage: the value at which the VaR will be estimated
-    estimation_type: either 'sample' or 'cornish_fisher'. 'sample' gets the quantile value at the given percentage 
-        'cornish_fisher' computes the VaR using a z Score, mean, std, skewness and kurtosis values
-
     """
-    print(f'{value_at_risk.__name__}: VaR estimated using a {
-          estimation_type} assumption and a confidence level of: {(1-percentage)*100}%')
-    if estimation_type == 'sample':
-        var = -returns.quantile(percentage)
-    elif estimation_type == 'cornish_fisher':
-        z = pd.Series(norm.ppf(percentage), index=returns.columns)
-        s = population_value(returns, metric='skewness')
-        k = population_value(returns, metric='kurtosis')
-        z_cf = (z +
-                (z**2 - 1)*s/6 +
-                (z**3 - 3*z)*k/24 -
-                (2*z**3 - 5*z)*(s**2)/36
-                )
+    print(f'{hist_value_at_risk.__name__}: VaR estimated using a confidence level of: {(1-percentage)*100}%')
 
-        var = -(returns.mean() + z_cf*returns.std(ddof=0))
+    var = -returns.quantile(percentage)
+
+    return var
+
+
+def cf_value_at_risk(returns: pd.DataFrame, percentage: float = 0.05, **kwargs) -> pd.Series:
+    """
+    Return the Cornish-Fisher Value at Risk for a set of returns. 
+    Computes the VaR using a z Score, mean, std, skewness and kurtosis values
+
+    Parameters:
+    percentage: the value at which the VaR will be estimated
+    """
+    print(f'{cf_value_at_risk.__name__}: VaR estimated using a confidence level of: {(1-percentage)*100}%')
+
+    z = pd.Series(norm.ppf(percentage), index=returns.columns)
+    s = population_value(returns, metric='skewness')
+    k = population_value(returns, metric='kurtosis')
+    z_cf = (z +
+            (z**2 - 1)*s/6 +
+            (z**3 - 3*z)*k/24 -
+            (2*z**3 - 5*z)*(s**2)/36
+            )
+
+    var = -(returns.mean() + z_cf*returns.std(ddof=0))
+
     return var
 
 
@@ -661,19 +672,14 @@ def ratio_metric(returns: pd.DataFrame, metric: str = 'sharpe_ratio', target: fl
     metric_map = {'sharpe_ratio': annualized_volatility, 'calmar_ratio': max_drawdown,
                   'sortino_ratio': target_downside_deviation, 'sterling_ratio': average_drawdown,
                   'burke_ratio': burke_drawdown_measure, 'modified_burke_ratio': modified_burke_drawdown_measure,
-                  'sample_var_ratio': value_at_risk, 'c_f_var_ratio': value_at_risk,
+                  'sample_var_ratio': hist_value_at_risk, 'c_f_var_ratio': cf_value_at_risk,
                   'cvar_ratio': conditional_value_at_risk,
                   'kappa_ratio': kappa_risk_measure}
-
-    if metric == 'c_f_var_ratio':
-        estimation_type = 'cornish_fisher'
-    else:
-        estimation_type = 'sample'
 
     target = convert_rate(target, p)
     excess_return = annualized_returns(returns - target, p)
     risk = metric_map[metric](returns=returns, p=p, target=target,
-                              percentage=percentage, estimation_type=estimation_type)
+                              percentage=percentage)
 
     sharpe_ratio = excess_return/risk
     return sharpe_ratio
@@ -949,38 +955,39 @@ PERCENTAGE = 0.05
 ALL_ABS_METRICS = [(total_return, {}), (annualized_returns, {}), (annualized_volatility, {}),
                    (ratio_metric, {'metric': 'sharpe_ratio', 'target': TARGET}
                     ), (scipy_metric, {'metric': 'skewness'}),
-                   (scipy_metric, {'metric': 'kurtosis'}), (scipy_metric, {'metric': 'normal_test'}), (
-    value_at_risk, {'percentage': PERCENTAGE, 'estimation_type': 'cornish_fisher'}),
-    (ratio_metric, {'metric': 'c_f_var_ratio',
+                   (scipy_metric, {'metric': 'kurtosis'}
+                    ), (scipy_metric, {'metric': 'normal_test'}),
+                   (cf_value_at_risk, {'percentage': PERCENTAGE}),
+                   (ratio_metric, {'metric': 'c_f_var_ratio',
                     'target': TARGET, 'percentage': PERCENTAGE}),
-    (value_at_risk, {'percentage': PERCENTAGE,
-                     'estimation_type': 'sample'}),
-    (ratio_metric, {'metric': 'sample_var_ratio',
+                   (hist_value_at_risk, {'percentage': PERCENTAGE}),
+                   (ratio_metric, {'metric': 'sample_var_ratio',
                     'target': TARGET, 'percentage': PERCENTAGE}),
-    (conditional_value_at_risk, {'percentage': PERCENTAGE}),
-    (ratio_metric, {'metric': 'cvar_ratio',
+                   (conditional_value_at_risk, {'percentage': PERCENTAGE}),
+                   (ratio_metric, {'metric': 'cvar_ratio',
                     'target': TARGET, 'percentage': PERCENTAGE}),
-    (max_drawdown, {}), (ratio_metric, {
-        'metric': 'calmar_ratio', 'target': TARGET}),
-    (average_drawdown, {}), (ratio_metric, {
-        'metric': 'sterling_ratio', 'target': TARGET}),
-    (burke_drawdown_measure, {}), (ratio_metric, {
-        'metric': 'burke_ratio', 'target': TARGET}),
-    (modified_burke_drawdown_measure, {}), (ratio_metric, {
-        'metric': 'modified_burke_ratio', 'target': TARGET}),
-    (target_downside_deviation, {'target': TARGET}),
-    (ratio_metric, {'metric': 'sortino_ratio', 'target': TARGET}),
-    (kappa_risk_measure, {'target': TARGET}),
-    (ratio_metric, {
-        'metric': 'kappa_ratio', 'target': TARGET}),
-    (gain_loss_ratio, {'target': TARGET}),
-    (upside_potential_ratio, {'target': TARGET}),
-    (omega_ratio_sum_approx, {'target': TARGET}),
-    (omega_ratio_put_option, {'target': TARGET}),
-    (sortino_ratio, {'target': TARGET}),
-    (kappa_ratio, {'target': TARGET}),
-    (sharpe_ratio_on_avg, {'target': TARGET})
-]
+                   (max_drawdown, {}), (ratio_metric, {
+                       'metric': 'calmar_ratio', 'target': TARGET}),
+                   (average_drawdown, {}), (ratio_metric, {
+                       'metric': 'sterling_ratio', 'target': TARGET}),
+                   (burke_drawdown_measure, {}), (ratio_metric, {
+                       'metric': 'burke_ratio', 'target': TARGET}),
+                   (modified_burke_drawdown_measure, {}), (ratio_metric, {
+                       'metric': 'modified_burke_ratio', 'target': TARGET}),
+                   (target_downside_deviation, {'target': TARGET}),
+                   (ratio_metric, {
+                    'metric': 'sortino_ratio', 'target': TARGET}),
+                   (kappa_risk_measure, {'target': TARGET}),
+                   (ratio_metric, {
+                       'metric': 'kappa_ratio', 'target': TARGET}),
+                   (gain_loss_ratio, {'target': TARGET}),
+                   (upside_potential_ratio, {'target': TARGET}),
+                   (omega_ratio_sum_approx, {'target': TARGET}),
+                   (omega_ratio_put_option, {'target': TARGET}),
+                   (sortino_ratio, {'target': TARGET}),
+                   (kappa_ratio, {'target': TARGET}),
+                   (sharpe_ratio_on_avg, {'target': TARGET})
+                   ]
 
 BENCHMARK = 'SPY'
 ALL_REL_METRICS = [(annualized_excess_returns, {'benchmark': BENCHMARK}),
