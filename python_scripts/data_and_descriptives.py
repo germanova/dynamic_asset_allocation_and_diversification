@@ -98,7 +98,7 @@ def fix_na_data_yahoo(df: pd.DataFrame, max_na: int = 3) -> pd.DataFrame:
         print(
             f'Total of {len(rem_na)} remaining tickers with NA: {rem_na.tolist()}, using backward fill...')
     # Use backward fill for columns with NA less than max_na
-    df = df.fillna(method='backfill')
+    df = df.bfill()
 
     return df
 

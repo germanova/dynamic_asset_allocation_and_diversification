@@ -48,7 +48,7 @@ class DAASimulation:
                                        date, self.account_name]
         return history_sub
 
-    def _mdd_floor(self, account_value: float, date: pd.Timestamp, **kargs) -> float:
+    def _mdd_floor(self, account_value: float, date: pd.Timestamp, **kwargs) -> float:
         """
         Updates MDD floor, can use a rolling window
 
@@ -76,7 +76,7 @@ class DAASimulation:
 
         return floor_value
 
-    def _cppi_floor(self, date: pd.Timestamp, **kargs) -> float:
+    def _cppi_floor(self, date: pd.Timestamp, **kwargs) -> float:
         """
         Updates CPPI floor
 
@@ -90,7 +90,7 @@ class DAASimulation:
 
         return floor_value
 
-    def _rdd_floor(self, account_value: float, date: pd.Timestamp, **kargs) -> float:
+    def _rdd_floor(self, account_value: float, date: pd.Timestamp, **kwargs) -> float:
         """
         Updates z (portfolio value/benchmark value), floor and cushion
 
@@ -104,14 +104,14 @@ class DAASimulation:
         current_z = account_value/core_value
         self.relative_value.loc[date] = current_z
 
-        rel_val_max = self.relative_value.max()[0]
+        rel_val_max = self.relative_value.max().iloc[0]
         floor_value = self.kappa*rel_val_max*core_value  # RDD Floor
 
         # relative drawdown
         self.z.loc[date] = current_z/rel_val_max - 1
         return floor_value
 
-    def _edd_floor(self, account_value: float, date: pd.Timestamp, **kargs) -> float:
+    def _edd_floor(self, account_value: float, date: pd.Timestamp, **kwargs) -> float:
         """ 
         Updates z (portfolio drawdown - benchmark drawdown), floor and cushion
 
@@ -253,8 +253,9 @@ class DAASimulation:
 
         self.history = pd.DataFrame(
             columns=history_columns, index=history_index)
-        self.history.iloc[0][self.account_name] = self.start_value
-        self.history.iloc[0][start_in_zero] = 0
+        first_row = self.history.index[0]
+        self.history.loc[first_row, self.account_name] = self.start_value
+        self.history.loc[first_row, start_in_zero] = 0
         self.history = self.history.astype(
             {self.account_name: 'float', 'sat_w': 'float', 'cushion': 'float', 'floor': 'float'})
 

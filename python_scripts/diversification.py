@@ -2,7 +2,6 @@ import numpy as np
 import pandas as pd
 from datetime import timedelta
 import time
-import warnings
 from python_scripts.data_and_descriptives import have_na
 from python_scripts.plot_backtest import _plot_backtest
 
@@ -55,7 +54,7 @@ class TriggerSimulation:
         '''
         return (da/da_rebal - 1 > self.threshold[0]) | (da/da_rebal - 1 < -self.threshold[1])
 
-    def _ew_rebal_w(self, **kargs):
+    def _ew_rebal_w(self, **kwargs):
         '''
         Computes Equal Weighted weights leaving 0% for cash
         Cash must be the last asset
@@ -68,7 +67,7 @@ class TriggerSimulation:
 
         return w
 
-    def _ew_trigger_w(self, da, da_rebal, **kargs):
+    def _ew_trigger_w(self, da, da_rebal, **kwargs):
         """
         Check if there are any assets that activates the trigger and updates dollar allocation
         Also updates rebal value, useful for recording with type of rebalancing was performed
@@ -80,14 +79,17 @@ class TriggerSimulation:
         trigger_type = abs_strategies[self.allocation_type]
         # make assignation to cash if asset had more return than threshold since last rebal date
         # in the case of cash == 0, there will be an np.nan, however it will be a false boolean
-        ret_rebal = trigger_type(da, da_rebal)
-        if ret_rebal[:-1].sum() > 0:
+
+        # [:-1] to exclude cash allocation
+        da_no_cash = da[:-1]
+        ret_rebal = trigger_type(da_no_cash, da_rebal[:-1])
+        if ret_rebal.sum() > 0:
             rebal = 2
         else:
             rebal = 0
-        ret_rebal = da * ret_rebal
-        ret_rebal[-1] = -ret_rebal[:-1].sum()
-        da = da + ret_rebal*-1
+        ret_rebal = da_no_cash * ret_rebal
+        ret_rebal = np.append(ret_rebal, -ret_rebal.sum())
+        da -= ret_rebal
 
         return da, rebal
 
@@ -103,7 +105,7 @@ class TriggerSimulation:
             # rebal at the start of the day
             if t in self.rebaldates:
 
-                w = self.rebal_strategy()
+                w = self.rebal_strategy()  # includes 0% to safe asset
                 # end of the day dollar allocation
                 # dollar allocation in t (dollar_allocation_t *(1+r_t))
                 da = (value * w)@np.diag(self.data.loc[t, :]+1)
@@ -143,7 +145,7 @@ class TriggerSimulation:
         elif self.allocation_type in ['ew_cap_floor']:
             if isinstance(self.threshold[0], float) and isinstance(self.threshold[1], float) and len(self.threshold) == 2:
                 print(
-                    f'backtesting {self.allocation_type} strategy using a thresholds (% return) of {self.threshold}')
+                    f'backtesting {self.allocation_type} strategy using thresholds (% return) of {self.threshold}')
             else:
                 print(
                     'threshold does not have the correct format, check if its a list with 2 floats')
@@ -185,9 +187,6 @@ class TriggerSimulation:
         if not cash_check:
             return None
 
-        warnings.resetwarnings()
-        warnings.simplefilter('ignore', category=FutureWarning)
-
         if not self.returns:
             self.data = self.data.pct_change().dropna()
 
@@ -224,8 +223,6 @@ class TriggerSimulation:
         if self.plot:
             _plot_backtest(self.data, self.allocation_type,  self.start_value, self.start_date,
                            self.portfolio_value, self.dollar_allocation, self.weights)
-
-        warnings.resetwarnings()
 
         print("--- %s seconds ---" % (time.time() - start_time))
         return backtest_results
