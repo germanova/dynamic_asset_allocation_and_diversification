@@ -103,6 +103,12 @@ class TriggerSimulation:
 
         return w
 
+    def _no_cap_floor(self, da, **kwargs):
+        """
+        For doing just the diversification part (no cap or floor)
+        """
+        return da, 0
+
     def _ew_trigger_w(self, da, da_rebal, **kwargs):
         """
         Check if there are any assets that activates the trigger and updates dollar allocation
@@ -186,6 +192,8 @@ class TriggerSimulation:
                 print(
                     'threshold does not have the correct format, check if its a list with 2 floats')
                 return False
+        elif self.allocation_type in ['no_cap_floor']:
+            return True
         else:
             print(f'{self.allocation_type} strategy not found')
             return False
@@ -227,8 +235,11 @@ class TriggerSimulation:
             self.data = self.data.pct_change().dropna()
 
         if self.allocation_type in ['ew_cap', 'ew_floor', 'ew_cap_floor']:
-            self.rebal_strategy = self._ew_rebal_w
             self.trigger_strategy = self._ew_trigger_w
+        elif self.allocation_type == 'no_cap_floor':
+            self.trigger_strategy = self._no_cap_floor
+
+        self.rebal_strategy = self._ew_rebal_w
 
         rebaldates = [i for i in range(
             self.window, len(self.data.index), self.rebal)]
