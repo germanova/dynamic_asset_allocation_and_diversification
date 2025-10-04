@@ -4,13 +4,14 @@ from datetime import timedelta
 import time
 from python_scripts.data_and_descriptives import have_na
 from python_scripts.plot_backtest import _plot_backtest
+from pandas.testing import assert_frame_equal
 
 
 class TriggerSimulation:
     def __init__(self, data,  allocation_type='ew_cap',
                  safe_asset='cash_bank', threshold=0.2,
                  window=180, rebal=30, start_value=1,
-                 returns=True, plot=True):
+                 are_returns=True, plot=True):
         '''
         Parameters:
         data: pd.DataFrame with the assets returns or prices, if using prices, returns parameters must be False
@@ -33,8 +34,43 @@ class TriggerSimulation:
         self.window = window
         self.rebal = rebal
         self.start_value = start_value
-        self.returns = returns
+        self.are_returns = are_returns
         self.plot = plot
+
+    def update_data(self, new_data, check_tickers=True):
+        '''
+        Update returns data while making sure that dates are consistent,
+        new data must start on the same date and must finish in date greater than the current one
+        new data until the final date of the past data must be the same
+        '''
+
+        start_date = self.data.index[0]
+        end_date = self.data.index[-1]
+
+        assert start_date == new_data.index[0]
+        assert end_date < new_data.index[-1]
+
+        if self.safe_asset == 'cash_bank':
+            new_data['cash_bank'] = 0.0
+        else:
+            assert self.safe_asset in new_data.columns
+            # put safe asset at the end
+            new_data[self.safe_asset] = new_data.pop(self.safe_asset)
+
+        new_r_sub = new_data.loc[new_data.index <= end_date,]
+        if check_tickers:
+            assert_frame_equal(self.data, new_r_sub)
+        else:
+            assert_frame_equal(self.data, new_r_sub, check_names=False)
+
+        assert not have_na(new_data)
+
+        self.data = new_data.copy(deep=True)
+        print('data updated, running backtest...')
+
+        backtest_results = self.trigger_simulation()
+
+        return backtest_results
 
     def _ew_cap(self, da, da_rebal):
         '''
@@ -187,7 +223,7 @@ class TriggerSimulation:
         if not cash_check:
             return None
 
-        if not self.returns:
+        if not self.are_returns:
             self.data = self.data.pct_change().dropna()
 
         if self.allocation_type in ['ew_cap', 'ew_floor', 'ew_cap_floor']:

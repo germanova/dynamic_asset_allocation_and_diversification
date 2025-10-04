@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from datetime import timedelta
 import time
 from python_scripts.data_and_descriptives import normalize_data, have_na
+from pandas.testing import assert_frame_equal
 
 
 class DAASimulation:
@@ -39,6 +40,47 @@ class DAASimulation:
         self.w_bounds = w_bounds
         self.returns = returns
         self.plot = plot
+
+    def update_data(self, new_data, check_tickers=True, dynamic_multiplier=None):
+        '''
+        Update returns data while making sure that dates are consistent,
+        new data must start on the same date and must finish in date greater than the current one
+        new data until the final date of the past data must be the same
+        '''
+
+        if self.dynamic_m:
+            assert isinstance(dynamic_multiplier, pd.DataFrame)
+            assert self.m.index[0] == dynamic_multiplier.index[0]
+            assert self.m.index[-1] < dynamic_multiplier.index[-1]
+            assert_frame_equal(
+                self.m, dynamic_multiplier.loc[dynamic_multiplier.index <= self.m.index[-1],])
+            assert not have_na(dynamic_multiplier)
+
+        start_date = self.data.index[0]
+        end_date = self.data.index[-1]
+
+        assert start_date == new_data.index[0]
+        assert end_date < new_data.index[-1]
+
+        new_r_sub = new_data.loc[new_data.index <= end_date,]
+        if check_tickers:
+            assert_frame_equal(self.data, new_r_sub)
+        else:
+            assert_frame_equal(self.data, new_r_sub, check_names=False)
+        # make sure columns are on the same order
+        assert (self.data.columns == new_data.columns).all()
+
+        assert not have_na(new_data)
+
+        self.data = new_data.copy(deep=True)
+        if self.dynamic_m:
+            self.m = dynamic_multiplier.copy(deep=True)
+
+        print('data updated, running backtest...')
+
+        backtest_results = self.daa_simulation()
+
+        return backtest_results
 
     def _sub_history(self, date: pd.Timestamp):
         '''
