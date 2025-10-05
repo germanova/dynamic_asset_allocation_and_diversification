@@ -5,30 +5,48 @@ import time
 from python_scripts.data_and_descriptives import have_na
 from python_scripts.plot_backtest import _plot_backtest
 from pandas.testing import assert_frame_equal
+from python_scripts.markowitz import markowitz_opt
+
+HRP = True
+try:
+    from python_scripts.hierachical_risk_parity import hrp
+except ImportError:
+    HRP = False
+    print("Hierarchical Risk Parity not found. Skipping...")
 
 
 class TriggerSimulation:
-    def __init__(self, data,  allocation_type='ew_cap',
+    def __init__(self, data,  exit_type='cap',
+                 rebal_type='markowitz',
                  safe_asset='cash_bank', threshold=0.2,
                  window=180, rebal=30, start_value=1,
-                 are_returns=True, plot=True):
+                 are_returns=True, plot=True, **kwargs):
         '''
         Parameters:
         data: pd.DataFrame with the assets returns or prices, if using prices, returns parameters must be False
-        allocation_type: type of strategy, could be 'ew_cap' for an Equal Weighted with a cap in returns (cap profit per asset),
-            'ew_floor' for an Equal Weighted with a floor in returns (limits losses per asset) or
-            'ew_cap_floor' for and Equal Weighted with both a floor and a cap in returns
-        threshold: float when using ew_cap and ew_floor, a list[float, float] when using ew_cap_floor.
+        exit_type: type of strategy, could be 'cap' for a cap in returns (cap profit per asset),
+            'floor' for a floor in returns (limits losses per asset) or
+            'cap_floor' for both a floor and a cap in returns
+        rebal_type: rebalancing method, currently could be 'ew' for equal-weighted or 'markowitz',
+            in case of 'markowitz' extra parameters are: gamma (risk-aversion parameter) and w_bounds (weight bounds, tuple of floats)
+            Hierarchical Risk Parity can also be used with 'hrp' if you have an implementation that retrieves the weights for given covariance and correlation matrices
+        threshold: float when using cap and floor, a list[float, float] when using cap_floor.
             It is the target % return that will define the rebalancing for the cap and the floor
-        window: parameter that uses a rolling window for estimations, only used in for certain strategies 
+        window: parameter that uses a rolling window for estimations, only used in for certain strategies
         rebal: step for rebalancing, every each rebal the strategy will do rebalancing
         start_value: start value of the strategy
         returns: if True, data are returns, if False must be prices
         plot: if True, perfomance metrics will be shown
         '''
 
+        if not HRP and rebal_type == 'hrp':
+            raise ImportError(
+                "A Hierarchical Risk Parity library is required to use this feature."
+                "The hrp() function should receive both covariance and correlation matrices. Please install it.")
+
         self.data = data
-        self.allocation_type = allocation_type
+        self.exit_type = exit_type
+        self.rebal_type = rebal_type
         self.safe_asset = safe_asset
         self.threshold = threshold
         self.window = window
@@ -36,6 +54,12 @@ class TriggerSimulation:
         self.start_value = start_value
         self.are_returns = are_returns
         self.plot = plot
+
+        if self.rebal_type == 'markowitz':
+            self.gamma = kwargs.get('gamma', 0.8)
+            print(f'using gamma = {self.gamma}')
+            self.w_bounds = kwargs.get('w_bounds', (0.0, 1.0))
+            print(f'using weight bounds = {self.w_bounds}')
 
     def update_data(self, new_data, check_tickers=True):
         '''
@@ -72,19 +96,19 @@ class TriggerSimulation:
 
         return backtest_results
 
-    def _ew_cap(self, da, da_rebal):
+    def _cap(self, da, da_rebal):
         '''
         Check if cap is exceeded per asset
         '''
         return da/da_rebal - 1 > self.threshold
 
-    def _ew_floor(self, da, da_rebal):
+    def _floor(self, da, da_rebal):
         '''
         Check if floor is broken per asset
         '''
         return da/da_rebal - 1 < -self.threshold
 
-    def _ew_cap_floor(self, da, da_rebal):
+    def _cap_floor(self, da, da_rebal):
         '''
         Check if cap is exceeded per asset or floor is broken per asset
         '''
@@ -103,6 +127,48 @@ class TriggerSimulation:
 
         return w
 
+    def _hrp_rebal_w(self, t, **kwargs):
+        '''
+        Computes the Hierarchical Risk Parity weights leaving 0% for cash
+        Cash must be the last asset
+
+        t: current date of estimation
+        '''
+        # Rolling Data
+        sub_returns = self.data.loc[t-timedelta(days=self.window):t,
+                                    ~self.data.columns.isin([self.safe_asset])]
+
+        # rolling covariance mat
+        cov = sub_returns.cov()
+        # rolling correlation mat
+        corr = sub_returns.corr()
+        w = hrp(corr, cov)
+
+        safe_asset_w = pd.Series([0], index=[self.safe_asset])
+        w = pd.concat([w, safe_asset_w])
+
+        return w
+
+    def _markowitz_rebal_w(self, t, **kwargs):
+        '''
+        Computes Markowitz weights leaving 0% for cash
+        Cash must be the last asset
+        '''
+        # Rolling Data
+        sub_returns = self.data.loc[t-timedelta(days=self.window):t,
+                                    ~self.data.columns.isin([self.safe_asset])]
+
+        mu = np.array(sub_returns.mean())
+        sig = sub_returns.cov()
+        w_init = np.ones(sub_returns.shape[1]) / sub_returns.shape[1]
+
+        w = markowitz_opt(mu, sig, w_init, gamma=self.gamma,
+                          w_bounds=(self.w_bounds, )*sub_returns.shape[1])
+
+        w = pd.Series(np.append(w, 0.0), index=self.data.columns)
+
+        return w
+
     def _no_cap_floor(self, da, **kwargs):
         """
         For doing just the diversification part (no cap or floor)
@@ -115,10 +181,10 @@ class TriggerSimulation:
         Also updates rebal value, useful for recording with type of rebalancing was performed
         """
 
-        abs_strategies = {'ew_cap': self._ew_cap, 'ew_floor': self._ew_floor,
-                          'ew_cap_floor': self._ew_cap_floor}
+        abs_strategies = {'cap': self._cap, 'floor': self._floor,
+                          'cap_floor': self._cap_floor}
 
-        trigger_type = abs_strategies[self.allocation_type]
+        trigger_type = abs_strategies[self.exit_type]
         # make assignation to cash if asset had more return than threshold since last rebal date
         # in the case of cash == 0, there will be an np.nan, however it will be a false boolean
 
@@ -147,7 +213,7 @@ class TriggerSimulation:
             # rebal at the start of the day
             if t in self.rebaldates:
 
-                w = self.rebal_strategy()  # includes 0% to safe asset
+                w = self.rebal_strategy(t=t)  # includes 0% to safe asset
                 # end of the day dollar allocation
                 # dollar allocation in t (dollar_allocation_t *(1+r_t))
                 da = (value * w)@np.diag(self.data.loc[t, :]+1)
@@ -171,31 +237,40 @@ class TriggerSimulation:
             self.weights.loc[t] = w
             self.rebalancing.loc[t] = rebal
 
-    def _check_capped_allocation_type(self) -> bool:
+    def _check_capped_exit_type(self) -> bool:
         '''
         Check if allocation type and threshold data is coherent
         '''
 
-        if self.allocation_type in ['ew_cap', 'ew_floor']:
+        if self.exit_type in ['cap', 'floor']:
             if isinstance(self.threshold, float):
                 print(
-                    f'backtesting {self.allocation_type} strategy using a threshold (% return) of {self.threshold}')
+                    f'backtesting {self.exit_type} strategy using a threshold (% return) of {self.threshold}')
             else:
                 print(f'threshold is not of {float}')
                 return False
 
-        elif self.allocation_type in ['ew_cap_floor']:
+        elif self.exit_type in ['cap_floor']:
             if isinstance(self.threshold[0], float) and isinstance(self.threshold[1], float) and len(self.threshold) == 2:
                 print(
-                    f'backtesting {self.allocation_type} strategy using thresholds (% return) of {self.threshold}')
+                    f'backtesting {self.exit_type} strategy using thresholds (% return) of {self.threshold}')
             else:
                 print(
                     'threshold does not have the correct format, check if its a list with 2 floats')
                 return False
-        elif self.allocation_type in ['no_cap_floor']:
+        elif self.exit_type in ['no_cap_floor']:
             return True
         else:
-            print(f'{self.allocation_type} strategy not found')
+            print(f'{self.exit_type} strategy not found')
+            return False
+
+        return True
+
+    def _check_rebal_type(self) -> bool:
+        allowed_methods = ['ew', 'markowitz', 'hrp']
+        if self.rebal_type not in allowed_methods:
+            print(
+                f'rebalancing method not found {float}, try {allowed_methods}')
             return False
 
         return True
@@ -224,7 +299,7 @@ class TriggerSimulation:
 
         start_time = time.time()
 
-        if have_na(self.data) or not self._check_capped_allocation_type():
+        if have_na(self.data) or not self._check_capped_exit_type() or not self._check_rebal_type():
             return None
 
         cash_check = self._check_cash_asset()
@@ -234,12 +309,17 @@ class TriggerSimulation:
         if not self.are_returns:
             self.data = self.data.pct_change().dropna()
 
-        if self.allocation_type in ['ew_cap', 'ew_floor', 'ew_cap_floor']:
+        if self.exit_type in ['cap', 'floor', 'cap_floor']:
             self.trigger_strategy = self._ew_trigger_w
-        elif self.allocation_type == 'no_cap_floor':
+        elif self.exit_type == 'no_cap_floor':
             self.trigger_strategy = self._no_cap_floor
 
-        self.rebal_strategy = self._ew_rebal_w
+        if self.rebal_type == 'ew':
+            self.rebal_strategy = self._ew_rebal_w
+        elif self.rebal_type == 'hrp':
+            self.rebal_strategy = self._hrp_rebal_w
+        elif self.rebal_type == 'markowitz':
+            self.rebal_strategy = self._markowitz_rebal_w
 
         rebaldates = [i for i in range(
             self.window, len(self.data.index), self.rebal)]
@@ -254,9 +334,9 @@ class TriggerSimulation:
         self._trigger_backtest()
 
         first_date = pd.DataFrame(
-            self.start_value, index=[self.start_date - timedelta(days=1)], columns=[self.allocation_type])
+            self.start_value, index=[self.start_date - timedelta(days=1)], columns=[self.exit_type])
         portfolio_value = pd.DataFrame(self.dollar_allocation.sum(
-            axis=1), index=self.weights.index, columns=[self.allocation_type])
+            axis=1), index=self.weights.index, columns=[self.exit_type])
         self.portfolio_value = pd.concat([first_date, portfolio_value])
         self.portfolio_value.index.name = 'Date'
 
@@ -268,7 +348,7 @@ class TriggerSimulation:
         }
 
         if self.plot:
-            _plot_backtest(self.data, self.allocation_type,  self.start_value, self.start_date,
+            _plot_backtest(self.data, self.exit_type,  self.start_value, self.start_date,
                            self.portfolio_value, self.dollar_allocation, self.weights)
 
         print("--- %s seconds ---" % (time.time() - start_time))

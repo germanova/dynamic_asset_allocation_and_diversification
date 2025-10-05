@@ -19,7 +19,7 @@ with open(r'testing\results\ew_trigger.pkl', 'rb') as f:
 
 def trigger_test(returns: pd.DataFrame, parameters: dict, testing_backtest_results: dict[pd.DataFrame]) -> bool:
 
-    trigger_simulation = TriggerSimulation(returns, allocation_type=parameters['allocation_type'], safe_asset=parameters['safe_asset'],
+    trigger_simulation = TriggerSimulation(returns, exit_type=parameters['exit_type'], rebal_type=parameters['rebal_type'], safe_asset=parameters['safe_asset'],
                                            threshold=parameters['threshold'], window=parameters['window'], rebal=parameters['rebal'])
     backtest_results = trigger_simulation.trigger_simulation()
 

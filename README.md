@@ -1,6 +1,6 @@
 # Dynamic Asset Allocation and Diversification Techniques
 
-This project explores various methods for managing and optimizing asset portfolios using Python. The code and examples provided implement dynamic asset allocation and portfolio diversification strategies.
+This project explores various methods for managing and optimizing asset portfolios using Python. The code and examples implement dynamic asset allocation, portfolio diversification strategies, and exit orders for risk management.
 
 ## Structure
 
@@ -21,8 +21,7 @@ This project explores various methods for managing and optimizing asset portfoli
 
 - **`diversification.py`**  
   Focuses on portfolio diversification through:
-  - Various rebalancing strategies.
-  - Variants of Equal-Weighted (EW) rebalancing.
+  - Equal-Weighted and Markowitz with weight bounds are supported. Other strategies, such as Hierarchical Risk Parity (HRP), can be incorporated with minimal modifications. HRP is included as an option in case you have your own implementation to import.
   - Incorporating stop-loss and take-profit mechanisms to manage risk and returns.
 
 ### Jupyter Notebooks
@@ -33,6 +32,7 @@ This project explores various methods for managing and optimizing asset portfoli
   Shows one of the backtesting strategies based on DAA and diversification strategies.
 - **`create_report.ipynb`** 
   Creates a report that outputs returns perfomance and risk metrics, along characteristics of the selected ETFs based on the **`etf_ib_data.xlsx`**  data.
+
 ### Data Files
 
 - **`etf_ib_data.xlsx`**  

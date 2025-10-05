@@ -1,5 +1,6 @@
 {
-    "allocation_type": "ew_cap_floor",
+    "exit_type": "cap_floor",
+    "rebal_type": "ew",
     "safe_asset": "cash_bank",
     "threshold": [
         0.1,
