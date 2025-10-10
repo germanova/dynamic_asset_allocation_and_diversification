@@ -20,6 +20,7 @@ class TriggerSimulation:
                  rebal_type='markowitz',
                  safe_asset='cash_bank', threshold=0.2,
                  window=180, rebal=30, start_value=10000, t_c=1,
+                 t_c_type='fixed',
                  are_returns=True, plot=True, **kwargs):
         '''
         Parameters:
@@ -28,6 +29,7 @@ class TriggerSimulation:
             'floor' for a floor in returns (limits losses per asset),
             'cap_floor' for both a floor and a cap in returns,
             'trailing_floor' for a trailing stop
+            'no_cap_floor' for no exit
         rebal_type: rebalancing method, currently could be 'ew' for equal-weighted or 'markowitz',
             in case of 'markowitz' extra parameters are: gamma (risk-aversion parameter) and w_bounds (weight bounds, tuple of floats)
             Hierarchical Risk Parity can also be used with 'hrp' if you have an implementation that retrieves the weights for given covariance and correlation matrices
@@ -36,7 +38,9 @@ class TriggerSimulation:
         window: parameter that uses a rolling window for estimations, only used in for certain strategies
         rebal: step for rebalancing, every each rebal the strategy will do rebalancing
         start_value: start value of the strategy
-        t_c: transaction cost
+        t_c: transaction cost in $ if 'fixed', in % if 'pct' (i.e. 0.1% = 0.001)
+        t_c_type: either 'fixed' for a fixed monetary amount per transaction or
+        'pct' for a cost representing a pct of the transaction value
         are_returns: if True, data are returns, if False must be prices
         plot: if True, perfomance metrics will be shown
         '''
@@ -46,7 +50,7 @@ class TriggerSimulation:
                 "A Hierarchical Risk Parity library is required to use this feature."
                 "The hrp() function should receive both covariance and correlation matrices. Please install it.")
 
-        self.data = data
+        self.data = data.copy(deep=True)
         self.exit_type = exit_type
         self.rebal_type = rebal_type
         self.safe_asset = safe_asset
@@ -54,8 +58,8 @@ class TriggerSimulation:
         self.window = window
         self.rebal = rebal
         self.start_value = start_value
-        assert t_c >= 0
         self.t_c = t_c
+        self.t_c_type = t_c_type
         self.are_returns = are_returns
         self.plot = plot
 
@@ -129,7 +133,7 @@ class TriggerSimulation:
         """
         For doing just the diversification part (no cap or floor)
         """
-        return da, 0
+        return da.copy(), 0
 
     def _ew_rebal_w(self, **kwargs):
         '''
@@ -217,9 +221,46 @@ class TriggerSimulation:
 
         ret_rebal = da_no_cash * ret_rebal
         ret_rebal = np.append(ret_rebal, -ret_rebal.sum())
-        da -= ret_rebal
+        da_new = (da - ret_rebal).copy()
 
-        return da, rebal
+        return da_new, rebal
+
+    def _fixed_t_c_rebal(self, w_t_1, w, value):
+        """
+        Return fixed transaction costs
+        """
+
+        # add transactions costs
+        if self.safe_asset == 'cash_bank':
+            # do not incur in transaction costs for cash
+            w_t_1.iloc[-1] = w.iloc[-1]
+
+        if self.t_c_type == 'fixed':
+            t_c = np.where(w != w_t_1, self.t_c, 0)
+
+        elif self.t_c_type == 'pct':
+            t_c = np.where(w != w_t_1, value * (w-w_t_1).abs() * self.t_c, 0)
+
+        return t_c
+
+    def _fixed_t_c_exit(self, rebal, da_t_1, da):
+        """
+        Return fixed transaction costs
+        """
+        # add transactions costs
+        if self.t_c_type == 'fixed':
+            t_c = self.t_c * (rebal == 2)
+
+        elif self.t_c_type == 'pct':
+            t_c = da_t_1 * (rebal == 2) * self.t_c
+
+        if self.safe_asset == 'cash_bank':
+            t_c[-1] = 0
+
+        elif self.t_c_type == 'pct':  # cost for safe asset buy
+            t_c[-1] = (da[-1] - da_t_1[-1]) * (rebal[-1] == 2) * self.t_c
+
+        return t_c
 
     def _trigger_backtest(self) -> None:
         '''
@@ -236,12 +277,7 @@ class TriggerSimulation:
             if t in self.rebaldates:
                 w = self.rebal_strategy(t=t)  # includes 0% to safe asset
 
-                # add transactions costs
-                if self.safe_asset == 'cash_bank':
-                    # do not incur in transaction costs for cash
-                    w_t_1.iloc[-1] = w.iloc[-1]
-
-                t_c = np.where(w != w_t_1, self.t_c, 0)
+                t_c = self._fixed_t_c_rebal(w_t_1, w, value)
                 # end of the day dollar allocation
                 # dollar allocation in t (dollar_allocation_t *(1+r_t))
                 da = ((value - t_c.sum()) * w)@np.diag(self.data.loc[t, :]+1)
@@ -255,18 +291,16 @@ class TriggerSimulation:
 
             else:
                 # end of the day dollar allocation in t (dollar_allocation_t *(1+r_t))
-                da = da @ np.diag(self.data.loc[t, :]+1)
+                da_t_1 = da.copy()
+                da_t_1 = da_t_1 @ np.diag(self.data.loc[t, :]+1)
 
                 da_max = np.maximum(da_max, da)  # for the trailing floor
 
                 da, rebal = self.trigger_strategy(
-                    da=da, da_rebal=da_rebal, da_max=da_max)
+                    da=da_t_1, da_rebal=da_rebal, da_max=da_max)
 
                 # add transactions costs
-                t_c = self.t_c * (rebal == 2)
-                if self.safe_asset == 'cash_bank':
-                    t_c[-1] = 0
-
+                t_c = self._fixed_t_c_exit(rebal, da_t_1, da)
                 da[-1] -= t_c.sum()  # subtract costs to alloc on safe asset
 
                 # weights drifts
@@ -280,6 +314,28 @@ class TriggerSimulation:
             self.weights.loc[t] = w
             self.rebalancing.loc[t] = rebal
             self.transaction_costs.loc[t] = t_c
+
+    def _check_tc_type(self):
+        '''
+        Check if transaction costs parameters are valid
+
+        '''
+
+        allowed_t_c = ['fixed', 'pct']
+
+        if self.t_c < 0:
+            print(f'transaction cost must be >= 0')
+            return False
+
+        if self.t_c_type not in allowed_t_c:
+            print(f'transaction cost type must not in {allowed_t_c}')
+            return False
+
+        if self.t_c_type == 'pct' and self.t_c >= 1:
+            print(f'transaction cost is >= 1')
+            return False
+
+        return True
 
     def _check_capped_exit_type(self) -> bool:
         '''
@@ -342,6 +398,9 @@ class TriggerSimulation:
         '''
 
         start_time = time.time()
+
+        if not self._check_tc_type():
+            return None
 
         if have_na(self.data) or not self._check_capped_exit_type() or not self._check_rebal_type():
             return None
