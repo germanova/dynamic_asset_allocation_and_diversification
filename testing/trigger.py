@@ -25,6 +25,7 @@ def trigger_test(returns: pd.DataFrame, parameters: dict, testing_backtest_resul
 
     i = 0
     for key in backtest_results:
+        print(f'Testing {key} data...')
         try:
             assert_frame_equal(
                 testing_backtest_results[key], backtest_results[key])

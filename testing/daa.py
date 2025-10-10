@@ -30,6 +30,7 @@ def daa_test(returns: pd.DataFrame, parameters: dict, testing_backtest_results: 
 
     i = 0
     for key in backtest_results:
+        print(f'Testing {key} data...')
         if isinstance(testing_backtest_results[key], pd.Series):
             try:
                 assert_series_equal(

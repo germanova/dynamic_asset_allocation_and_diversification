@@ -25,8 +25,9 @@ class TriggerSimulation:
         Parameters:
         data: pd.DataFrame with the assets returns or prices, if using prices, returns parameters must be False
         exit_type: type of strategy, could be 'cap' for a cap in returns (cap profit per asset),
-            'floor' for a floor in returns (limits losses per asset) or
-            'cap_floor' for both a floor and a cap in returns
+            'floor' for a floor in returns (limits losses per asset),
+            'cap_floor' for both a floor and a cap in returns,
+            'trailing_floor' for a trailing stop
         rebal_type: rebalancing method, currently could be 'ew' for equal-weighted or 'markowitz',
             in case of 'markowitz' extra parameters are: gamma (risk-aversion parameter) and w_bounds (weight bounds, tuple of floats)
             Hierarchical Risk Parity can also be used with 'hrp' if you have an implementation that retrieves the weights for given covariance and correlation matrices
@@ -96,6 +97,13 @@ class TriggerSimulation:
 
         return backtest_results
 
+    def _trailing_floor(self, da, da_max):
+        '''
+        Check if trailing floor is broken per asset
+        '''
+
+        return da/da_max - 1 < -self.threshold
+
     def _cap(self, da, da_rebal):
         '''
         Check if cap is exceeded per asset
@@ -113,6 +121,12 @@ class TriggerSimulation:
         Check if cap is exceeded per asset or floor is broken per asset
         '''
         return (da/da_rebal - 1 > self.threshold[0]) | (da/da_rebal - 1 < -self.threshold[1])
+
+    def _no_cap_floor(self, da, **kwargs):
+        """
+        For doing just the diversification part (no cap or floor)
+        """
+        return da, 0
 
     def _ew_rebal_w(self, **kwargs):
         '''
@@ -169,20 +183,14 @@ class TriggerSimulation:
 
         return w
 
-    def _no_cap_floor(self, da, **kwargs):
-        """
-        For doing just the diversification part (no cap or floor)
-        """
-        return da, 0
-
-    def _ew_trigger_w(self, da, da_rebal, **kwargs):
+    def _ew_trigger_w(self, da, da_rebal, da_max, **kwargs):
         """
         Check if there are any assets that activates the trigger and updates dollar allocation
         Also updates rebal value, useful for recording with type of rebalancing was performed
         """
 
         abs_strategies = {'cap': self._cap, 'floor': self._floor,
-                          'cap_floor': self._cap_floor}
+                          'cap_floor': self._cap_floor, 'trailing_floor': self._trailing_floor}
 
         trigger_type = abs_strategies[self.exit_type]
         # make assignation to cash if asset had more return than threshold since last rebal date
@@ -190,11 +198,20 @@ class TriggerSimulation:
 
         # [:-1] to exclude cash allocation
         da_no_cash = da[:-1]
-        ret_rebal = trigger_type(da_no_cash, da_rebal[:-1])
-        if ret_rebal.sum() > 0:
-            rebal = 2
+        if self.exit_type == 'trailing_floor':
+            ret_rebal = np.where(
+                da_no_cash == 0, False, trigger_type(da_no_cash, da_max[:-1]))
         else:
-            rebal = 0
+            ret_rebal = np.where(
+                da_no_cash == 0, False, trigger_type(da_no_cash, da_rebal[:-1]))
+
+        rebal = np.zeros_like(ret_rebal, dtype=int)
+        rebal[ret_rebal] = 2
+        if ret_rebal.sum() > 0:
+            rebal = np.append(rebal, 2)  # for cash
+        else:
+            rebal = np.append(rebal, 0)  # for cash
+
         ret_rebal = da_no_cash * ret_rebal
         ret_rebal = np.append(ret_rebal, -ret_rebal.sum())
         da -= ret_rebal
@@ -212,7 +229,6 @@ class TriggerSimulation:
 
             # rebal at the start of the day
             if t in self.rebaldates:
-
                 w = self.rebal_strategy(t=t)  # includes 0% to safe asset
                 # end of the day dollar allocation
                 # dollar allocation in t (dollar_allocation_t *(1+r_t))
@@ -221,6 +237,7 @@ class TriggerSimulation:
 
                 # store dollar allocation at then time of rebalancing
                 da_rebal = da.copy()
+                da_max = da.copy()
                 # store value of rebalancing as 1 (rebalancing for rebalancing date)
                 rebal = 1
 
@@ -228,7 +245,11 @@ class TriggerSimulation:
                 # end of the day dollar allocation in t (dollar_allocation_t *(1+r_t))
                 da = da @ np.diag(self.data.loc[t, :]+1)
 
-                da, rebal = self.trigger_strategy(da=da, da_rebal=da_rebal)
+                da_max = np.maximum(da_max, da)  # for the trailing floor
+
+                da, rebal = self.trigger_strategy(
+                    da=da, da_rebal=da_rebal, da_max=da_max)
+
                 # weights drifts
                 w = da/da.sum()  # end of the day vector of weights
 
@@ -242,7 +263,7 @@ class TriggerSimulation:
         Check if allocation type and threshold data is coherent
         '''
 
-        if self.exit_type in ['cap', 'floor']:
+        if self.exit_type in ['cap', 'floor', 'trailing_floor']:
             if isinstance(self.threshold, float):
                 print(
                     f'backtesting {self.exit_type} strategy using a threshold (% return) of {self.threshold}')
@@ -309,7 +330,7 @@ class TriggerSimulation:
         if not self.are_returns:
             self.data = self.data.pct_change().dropna()
 
-        if self.exit_type in ['cap', 'floor', 'cap_floor']:
+        if self.exit_type in ['cap', 'floor', 'cap_floor', 'trailing_floor']:
             self.trigger_strategy = self._ew_trigger_w
         elif self.exit_type == 'no_cap_floor':
             self.trigger_strategy = self._no_cap_floor
