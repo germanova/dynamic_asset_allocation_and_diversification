@@ -19,7 +19,7 @@ class TriggerSimulation:
     def __init__(self, data,  exit_type='cap',
                  rebal_type='markowitz',
                  safe_asset='cash_bank', threshold=0.2,
-                 window=180, rebal=30, start_value=1,
+                 window=180, rebal=30, start_value=10000, t_c=1,
                  are_returns=True, plot=True, **kwargs):
         '''
         Parameters:
@@ -36,7 +36,8 @@ class TriggerSimulation:
         window: parameter that uses a rolling window for estimations, only used in for certain strategies
         rebal: step for rebalancing, every each rebal the strategy will do rebalancing
         start_value: start value of the strategy
-        returns: if True, data are returns, if False must be prices
+        t_c: transaction cost
+        are_returns: if True, data are returns, if False must be prices
         plot: if True, perfomance metrics will be shown
         '''
 
@@ -53,6 +54,8 @@ class TriggerSimulation:
         self.window = window
         self.rebal = rebal
         self.start_value = start_value
+        assert t_c >= 0
+        self.t_c = t_c
         self.are_returns = are_returns
         self.plot = plot
 
@@ -224,22 +227,31 @@ class TriggerSimulation:
 
         '''
         value = self.start_value
-
+        # init weights on t-1
+        w_t_1 = pd.Series(
+            np.zeros(self.data.shape[1]), index=self.data.columns)
         for t in self.weights.index:
 
             # rebal at the start of the day
             if t in self.rebaldates:
                 w = self.rebal_strategy(t=t)  # includes 0% to safe asset
+
+                # add transactions costs
+                if self.safe_asset == 'cash_bank':
+                    # do not incur in transaction costs for cash
+                    w_t_1.iloc[-1] = w.iloc[-1]
+
+                t_c = np.where(w != w_t_1, self.t_c, 0)
                 # end of the day dollar allocation
                 # dollar allocation in t (dollar_allocation_t *(1+r_t))
-                da = (value * w)@np.diag(self.data.loc[t, :]+1)
+                da = ((value - t_c.sum()) * w)@np.diag(self.data.loc[t, :]+1)
                 w = da/da.sum()  # end of the day vector of weights
 
                 # store dollar allocation at then time of rebalancing
                 da_rebal = da.copy()
                 da_max = da.copy()
-                # store value of rebalancing as 1 (rebalancing for rebalancing date)
-                rebal = 1
+                # store value of rebalancing as 1 (rebalancing on rebalancing date)
+                rebal = np.where(t_c > 0, 1, 0)
 
             else:
                 # end of the day dollar allocation in t (dollar_allocation_t *(1+r_t))
@@ -250,13 +262,24 @@ class TriggerSimulation:
                 da, rebal = self.trigger_strategy(
                     da=da, da_rebal=da_rebal, da_max=da_max)
 
+                # add transactions costs
+                t_c = self.t_c * (rebal == 2)
+                if self.safe_asset == 'cash_bank':
+                    t_c[-1] = 0
+
+                da[-1] -= t_c.sum()  # subtract costs to alloc on safe asset
+
                 # weights drifts
                 w = da/da.sum()  # end of the day vector of weights
 
+                w = pd.Series(w, index=self.data.columns)
+
+            w_t_1 = w.copy()  # update weights at t-1
             value = da.sum()
             self.dollar_allocation.loc[t] = da
             self.weights.loc[t] = w
             self.rebalancing.loc[t] = rebal
+            self.transaction_costs.loc[t] = t_c
 
     def _check_capped_exit_type(self) -> bool:
         '''
@@ -351,6 +374,7 @@ class TriggerSimulation:
             pd.DataFrame(self.data.loc[self.start_date:]))
         self.dollar_allocation = self.weights.copy(deep=True)
         self.rebalancing = self.weights.copy(deep=True)
+        self.transaction_costs = self.weights.copy(deep=True)
 
         self._trigger_backtest()
 
@@ -365,7 +389,8 @@ class TriggerSimulation:
             "portfolio_value": self.portfolio_value,
             "dollar_allocation": self.dollar_allocation,
             "weights": self.weights,
-            "rebalancing": self.rebalancing
+            "rebalancing": self.rebalancing,
+            "transaction_costs": self.transaction_costs
         }
 
         if self.plot:

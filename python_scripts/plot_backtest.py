@@ -18,7 +18,7 @@ def _plot_backtest(data: pd.DataFrame, allocation_type: str,  start_value: int, 
     ax1[0].set_title(f'{allocation_type} Strategy')
 
     norm_data = normalize_data(data, True, start_value, False, True)
-    norm_data = pd.concat([norm_data, portfolio_value])
+    norm_data = pd.concat([norm_data, portfolio_value], axis=1, join='inner')
     ax1[1].plot(norm_data)
     ax1[1].set_title(f'{allocation_type} Strategy Components')
     ax1[1].legend([x.upper() for x in norm_data.columns], loc="upper left")
