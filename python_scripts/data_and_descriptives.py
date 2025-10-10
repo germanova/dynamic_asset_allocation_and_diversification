@@ -160,7 +160,7 @@ def normalize_data(data: pd.DataFrame, are_returns: bool = True, base: int = 1, 
 
     if are_returns:
         print('using RETURNS...')
-        results = (data + base).cumprod()
+        results = base*(data + 1).cumprod()
         # add first date as base value
         first_date = pd.DataFrame(
             base, index=[data.index[0] - timedelta(days=1)], columns=data.columns)
